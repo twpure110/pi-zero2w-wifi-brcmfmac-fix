@@ -44,6 +44,8 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 | `Authentication suites: SAE` | 純粋 WPA3 | **必ず失敗** |
 | `Authentication suites: PSK` | 純粋 WPA2 | **接続可** |
 
+> **⚠️ ルーターのアプリ表示を信じないこと。** メッシュルーターはアプリで「WPA2」と表示しつつ、ビーコンはまだ SAE を広告していることがある ——「WPA2」オプションが WPA3 互換を残す、またはメインルーターを変えたがメッシュのノードが同期していない、など。必ず*クライアント側*で上記スキャンを使って検証する:`Authentication suites: PSK` で、**SAE がない**ことを確認。（SAE が残っている症状:Pi の接続が不安定 —— 強信号では繋がり、弱信号や再起動後は拒否される。）
+
 ## 3. 対処（純 WPA2 + roamoff=1；BSSID 固定は任意；Wi-Fi 6 は維持可）
 
 **ルーター:** 2.4GHz SSID を**純粋な WPA2-Personal** に（WPA3/混在をオフ）。Wi-Fi 6 は有効のままで可。メッシュはなおバンドステアリングするが、クライアントの `roamoff=1` が処理する —— BSSID 固定は*任意*（下記参照）。
@@ -104,6 +106,16 @@ options brcmfmac roamoff=1
 
 > **`feature_disable` についての実測注意。** 多くのフォーラムが
 > `options brcmfmac roamoff=1 feature_disable=0x82000`（`0x82000` は SAE + SWSUP の無効化が狙い）を勧めます。**この BCM43430 では観測可能な効果なし** —— `cat /sys/module/brcmfmac/parameters/feature_disable` は**空**を返した（このチップではドライバが sysfs にこのパラメータを出さない）。実測で効いたのは `roamoff=1` だけ。別チップでは結果が異なる可能性あり。
+
+### 試しても無駄なこと（クライアント側）
+
+以下はすべて試したが**効果なし** —— 問題は AP 側であって Pi の設定ではない:
+
+- `nmcli con modify "<YOUR_SSID_2G>" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.pmf disable`
+- `iw reg set <CC>` / `raspi-config nonint do_wifi_country <CC>`（規制国コードの設定）
+- `rfkill unblock` / 繰り返し再接続
+
+クライアント側で効くのは暗号化（純粋 WPA2）と `roamoff=1` の 2 つだけ。それ以外は気を散らすだけ —— AP 側で直し、クライアントのつまみをいじらないこと。
 
 ## 4. ハードウェアの文脈 —— 素 vs 改造の Zero 2 W
 

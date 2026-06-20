@@ -44,6 +44,8 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 | `Authentication suites: SAE` | pure WPA3 | **always fails** |
 | `Authentication suites: PSK` | pure WPA2 | **works** |
 
+> **⚠️ Don't trust your router's app label.** A mesh router can show "WPA2" in its app while the beacon still advertises SAE — the "WPA2" option often keeps WPA3 compatibility, or you changed the main router but a mesh node didn't sync. Always verify *from the client* with the scan above: you must see `Authentication suites: PSK` with **no** `SAE`. (Symptom of lingering SAE: the Pi connects intermittently — fine on a strong signal, rejected on a weak one or after a reboot.)
+
 ## 3. The fix (pure WPA2 + roamoff=1; BSSID pin optional; Wi-Fi 6 can stay on)
 
 **Router:** set the 2.4 GHz SSID to **pure WPA2-Personal** (turn off WPA3/mixed). Wi-Fi 6 may stay enabled. The mesh will still band-steer, but `roamoff=1` on the client handles that — a BSSID pin is *optional* (see below).
@@ -104,6 +106,16 @@ options brcmfmac roamoff=1
 
 > **A measured caveat on `feature_disable`.** Many forum posts recommend
 > `options brcmfmac roamoff=1 feature_disable=0x82000` (the `0x82000` is meant to disable SAE + SWSUP). **On this BCM43430 it had no observable effect** — `cat /sys/module/brcmfmac/parameters/feature_disable` came back *empty* (the driver doesn't expose this parameter via sysfs on this chip). Only `roamoff=1` measurably helped. Your mileage on a different chip may differ.
+
+### What NOT to bother with (client-side)
+
+These were all tried and made **no difference** — the problem is on the AP side, not in the Pi's config:
+
+- `nmcli con modify "<YOUR_SSID_2G>" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.pmf disable`
+- `iw reg set <CC>` / `raspi-config nonint do_wifi_country <CC>` (setting the regulatory country)
+- `rfkill unblock` / repeatedly reconnecting
+
+The only two client-side things that matter are encryption (pure WPA2) and `roamoff=1`. Everything else is a distraction — fix it at the AP, don't tweak client knobs.
 
 ## 4. Hardware context — stock vs. modified Zero 2 W
 

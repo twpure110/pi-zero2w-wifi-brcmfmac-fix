@@ -44,6 +44,8 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 | `Authentication suites: SAE` | 純 WPA3 | **必定失敗** |
 | `Authentication suites: PSK` | 純 WPA2 | **可以連** |
 
+> **⚠️ 別信路由器 App 的標籤。** mesh 路由器可能 App 顯示「WPA2」,但 beacon 其實還在廣播 SAE——「WPA2」選項常保留 WPA3 相容,或你改了主路由但某個 mesh 子節點沒同步。一定要*從客戶端*用上面的 scan 驗收:必須看到 `Authentication suites: PSK`、**沒有** `SAE`。(SAE 殘留的症狀:Pi 時好時壞——訊號強時連得上、弱或重開後被 reject。)
+
 ## 3. 修法(純 WPA2 + roamoff=1;鎖 BSSID 選擇性;Wi-Fi 6 可保留)
 
 **路由器:** 把 2.4GHz SSID 設成**純 WPA2-Personal**(關 WPA3/混合)。Wi-Fi 6 可保持開啟。mesh 仍會 band-steer,但客戶端的 `roamoff=1` 會處理掉——鎖 BSSID 是*選擇性*的(見下)。
@@ -104,6 +106,16 @@ options brcmfmac roamoff=1
 
 > **關於 `feature_disable` 的實測注意。** 很多論壇推薦
 > `options brcmfmac roamoff=1 feature_disable=0x82000`(`0x82000` 用意是關 SAE + SWSUP)。**在這顆 BCM43430 上完全沒效** —— `cat /sys/module/brcmfmac/parameters/feature_disable` 讀出來是**空的**(此晶片驅動不透過 sysfs 暴露這個參數)。只有 `roamoff=1` 實測有用。換別顆晶片結果可能不同。
+
+### 客戶端側沒用的嘗試(別浪費時間)
+
+以下都試過、**無效**——問題在 AP 側,不在 Pi 的設定:
+
+- `nmcli con modify "<YOUR_SSID_2G>" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.pmf disable`
+- `iw reg set <CC>` / `raspi-config nonint do_wifi_country <CC>`(設定管制國碼)
+- `rfkill unblock` / 反覆 reconnect
+
+客戶端真正有用的只有兩件:加密(純 WPA2)和 `roamoff=1`。其餘都是干擾——要在 AP 端解,別在客戶端瞎調。
 
 ## 4. 硬體脈絡 —— 原廠 vs 改裝的 Zero 2 W
 

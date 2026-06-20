@@ -44,6 +44,8 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 | `Authentication suites: SAE` | 순수 WPA3 | **항상 실패** |
 | `Authentication suites: PSK` | 순수 WPA2 | **안정적으로 연결** |
 
+> **⚠️ 공유기 앱 표시를 믿지 마라.** 메시 공유기는 앱에서 "WPA2"로 표시하면서도 비콘은 여전히 SAE를 광고할 수 있다 —— "WPA2" 옵션이 WPA3 호환을 유지하거나, 메인 공유기는 바꿨지만 메시 노드가 동기화되지 않은 경우 등. 반드시 *클라이언트에서* 위 스캔으로 검증하라: `Authentication suites: PSK` 이고 **SAE가 없어야** 한다. (SAE가 남은 증상: Pi 연결이 들쭉날쭉 —— 강신호에서는 되고, 약신호나 재부팅 후에는 거부됨.)
+
 ## 3. 해결(순수 WPA2 + roamoff=1; BSSID 고정 선택; Wi-Fi 6 유지 가능)
 
 **공유기:** 2.4GHz SSID를 **순수 WPA2-Personal** 로(WPA3/혼합 끄기). Wi-Fi 6은 유지 가능. 메시는 여전히 밴드 스티어링하지만 클라이언트의 `roamoff=1`이 처리함 —— BSSID 고정은 *선택*(아래 참고).
@@ -104,6 +106,16 @@ options brcmfmac roamoff=1
 
 > **`feature_disable`에 대한 실측 주의.** 많은 포럼이
 > `options brcmfmac roamoff=1 feature_disable=0x82000`(`0x82000`은 SAE + SWSUP 비활성화 의도)을 권합니다. **이 BCM43430에서는 관측 가능한 효과 없음** —— `cat /sys/module/brcmfmac/parameters/feature_disable` 가 **비어 있게** 반환됨(이 칩에서는 드라이버가 sysfs로 이 파라미터를 노출하지 않음). 실측으로 효과가 있던 것은 `roamoff=1` 뿐. 다른 칩에서는 결과가 다를 수 있음.
+
+### 해봐야 소용없는 것 (클라이언트 측)
+
+아래는 모두 시도했지만 **효과 없음** —— 문제는 AP 측이지 Pi 설정이 아니다:
+
+- `nmcli con modify "<YOUR_SSID_2G>" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.pmf disable`
+- `iw reg set <CC>` / `raspi-config nonint do_wifi_country <CC>`(규제 국가 코드 설정)
+- `rfkill unblock` / 반복 재연결
+
+클라이언트 측에서 의미 있는 건 암호화(순수 WPA2)와 `roamoff=1` 둘뿐. 나머지는 산만함 —— AP에서 고치고 클라이언트 노브를 만지지 말 것.
 
 ## 4. 하드웨어 맥락 —— 기본 vs 개조한 Zero 2 W
 
