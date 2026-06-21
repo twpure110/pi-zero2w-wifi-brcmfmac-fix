@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md) · Languages: **English** · [繁體中文](troubleshooting.zh-TW.md) · [日本語](troubleshooting.ja.md) · [한국어](troubleshooting.ko.md)
 
-> Real field notes from a home deployment of three Raspberry Pi boards (a Zero 2 W, a 3B+, and a Pi 4) on a Xiaomi Wi-Fi 6 mesh (BE6500 + BE3600). Host-specific secrets (Wi-Fi password, SSID, BSSID, internal IPs) are replaced with placeholders.
+> Real field notes from a home deployment of three Raspberry Pi boards (a Zero 2 W, a 3B+, and a Pi 4) on a Xiaomi Wi-Fi 7 mesh (BE6500 + BE3600). Host-specific secrets (Wi-Fi password, SSID, BSSID, internal IPs) are replaced with placeholders.
 
 ## 1. One-sentence conclusion
 
@@ -46,9 +46,9 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 
 > **⚠️ Don't trust your router's app label.** A mesh router can show "WPA2" in its app while the beacon still advertises SAE — the "WPA2" option often keeps WPA3 compatibility, or you changed the main router but a mesh node didn't sync. Always verify *from the client* with the scan above: you must see `Authentication suites: PSK` with **no** `SAE`. (Symptom of lingering SAE: the Pi connects intermittently — fine on a strong signal, rejected on a weak one or after a reboot.)
 
-## 3. The fix (pure WPA2 + roamoff=1; BSSID pin optional; Wi-Fi 6 can stay on)
+## 3. The fix (pure WPA2 + roamoff=1; BSSID pin optional; Wi-Fi 6/7 can stay on)
 
-**Router:** set the 2.4 GHz SSID to **pure WPA2-Personal** (turn off WPA3/mixed). Wi-Fi 6 may stay enabled. The mesh will still band-steer, but `roamoff=1` on the client handles that — a BSSID pin is *optional* (see below).
+**Router:** set the 2.4 GHz SSID to **pure WPA2-Personal** (turn off WPA3/mixed). Wi-Fi 6/7 may stay enabled. The mesh will still band-steer, but `roamoff=1` on the client handles that — a BSSID pin is *optional* (see below).
 
 **Client (default — roamoff-only, no pin):**
 
@@ -146,9 +146,9 @@ Firmware: BCM43430/1 wl0: Jun 14 2023 ... version 7.45.96.s1 (gf031a129)
 
 ## 6. Controlled experiments
 
-### 6a. Wi-Fi 6 is NOT the culprit (a corrected misdiagnosis)
+### 6a. The Wi-Fi generation (6/7) is NOT the culprit (a corrected misdiagnosis)
 
-Early on I suspected Wi-Fi 6 (802.11ax/HE). **Turning Wi-Fi 6 back on while keeping pure WPA2, the Zero 2 W still connected — first-try on reconnect, and auto-reconnected on reboot.** So **do not** drop your 2.4 GHz to Wi-Fi 4/5 for one old client (that would slow every 2.4 GHz device). Keep Wi-Fi 6; just keep the encryption pure WPA2.
+Early on I suspected the AP's modern Wi-Fi mode. **First, the facts:** this network is actually **Wi-Fi 7** (Xiaomi BE-series; with Wi-Fi 5 compatibility off it runs 802.11be). But the Zero 2 W is an **802.11n (Wi-Fi 4)** chip — it associates at legacy rates and ignores the AP's HE (Wi-Fi 6) / EHT (Wi-Fi 7) features entirely. **Re-enabling the modern mode while keeping pure WPA2, the Zero 2 W still connected — first-try on reconnect, and auto-reconnected on reboot.** So **do not** drop your 2.4 GHz to Wi-Fi 4/5 for one old client (that would slow every 2.4 GHz device). The Wi-Fi generation (6 or 7) isn't the breaker — keep it on, just keep the encryption pure WPA2.
 
 ### 6b. Three-device comparison (same bug family, different severity)
 
@@ -288,7 +288,7 @@ These runs deliberately flap Wi-Fi, which pollutes the node's *own* monitoring: 
 | `status_code=16` is a long-standing brcmfmac issue; others hit it too | RPi forums t=377009, fiquett.com |
 
 ### ⭐ First-hand only (not in the external sources, or correcting them)
-1. **Wi-Fi 6 is innocent** — proven by re-enabling it under pure WPA2 (also overturned my own initial guess).
+1. **The Wi-Fi generation (6/7) is innocent** — proven by re-enabling the modern mode under pure WPA2 (the old 802.11n client ignores it anyway; also overturned my own initial guess).
 2. **Safe-reconnect threshold ≥10 s** — quantified by a 100/100 slow-reconnect test (#27 only says "it halts," not how dense is dangerous).
 3. **`feature_disable=0x82000` had no effect on this chip** — sysfs read came back empty; only `roamoff=1` measurably worked. (Corrects the common forum advice.)
 4. **The specific strong-node BSSID** to pin — site-specific to this mesh.
@@ -309,6 +309,6 @@ These runs deliberately flap Wi-Fi, which pollutes the node's *own* monitoring: 
 
 ## 9. Final state
 
-- Zero 2 W joins `<YOUR_SSID_2G>` → DHCP lease, Wi-Fi 6 + pure WPA2, BSSID pinned, `brcmfmac.conf roamoff=1`, autoconnect retry-forever. Auto-reconnects on boot (within ≤1 reject).
+- Zero 2 W joins `<YOUR_SSID_2G>` → DHCP lease, Wi-Fi 7 + pure WPA2, **roamoff-only (no BSSID pin)**, `brcmfmac.conf roamoff=1`, autoconnect retry-forever. Auto-reconnects on boot (within ≤1 reject).
 - **Wired `eth0` remains primary; Wi-Fi is backup.** (Stock Wi-Fi-only boards: Wi-Fi is the only link — the fix matters more.)
-- Router stays **Wi-Fi 6** (proven harmless). For encryption: **pure WPA2 is the most reliable**; pure WPA3/SAE always fails; mixed mode connects but is flaky. (This deployment keeps mixed mode for a backup link — pure WPA2 is recommended if you want it rock-solid.)
+- Router stays **Wi-Fi 7** (proven harmless). For encryption: **pure WPA2 is the most reliable**; pure WPA3/SAE always fails; mixed mode connects but is flaky. (This deployment keeps mixed mode for a backup link — pure WPA2 is recommended if you want it rock-solid.)

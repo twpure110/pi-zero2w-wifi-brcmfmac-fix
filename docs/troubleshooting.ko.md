@@ -2,7 +2,7 @@
 
 [← README로 돌아가기](../README.ko.md) · 언어: [English](troubleshooting.en.md) · [繁體中文](troubleshooting.zh-TW.md) · [日本語](troubleshooting.ja.md) · **한국어**
 
-> 라즈베리 파이 3대(Zero 2 W, 3B+, Pi 4)를 Xiaomi Wi-Fi 6 메시(BE6500 + BE3600)에 연결한 가정 배포의 현장 기록. 호스트 고유 비밀 정보(Wi-Fi 비밀번호, SSID, BSSID, 내부 IP)는 플레이스홀더로 치환됨.
+> 라즈베리 파이 3대(Zero 2 W, 3B+, Pi 4)를 Xiaomi Wi-Fi 7 메시(BE6500 + BE3600)에 연결한 가정 배포의 현장 기록. 호스트 고유 비밀 정보(Wi-Fi 비밀번호, SSID, BSSID, 내부 IP)는 플레이스홀더로 치환됨.
 
 ## 1. 한 문장 결론
 
@@ -46,9 +46,9 @@ sudo iw dev wlan0 scan | grep -iA22 'SSID: <YOUR_SSID_2G>' | grep -iE 'RSN|Authe
 
 > **⚠️ 공유기 앱 표시를 믿지 마라.** 메시 공유기는 앱에서 "WPA2"로 표시하면서도 비콘은 여전히 SAE를 광고할 수 있다 —— "WPA2" 옵션이 WPA3 호환을 유지하거나, 메인 공유기는 바꿨지만 메시 노드가 동기화되지 않은 경우 등. 반드시 *클라이언트에서* 위 스캔으로 검증하라: `Authentication suites: PSK` 이고 **SAE가 없어야** 한다. (SAE가 남은 증상: Pi 연결이 들쭉날쭉 —— 강신호에서는 되고, 약신호나 재부팅 후에는 거부됨.)
 
-## 3. 해결(순수 WPA2 + roamoff=1; BSSID 고정 선택; Wi-Fi 6 유지 가능)
+## 3. 해결(순수 WPA2 + roamoff=1; BSSID 고정 선택; Wi-Fi 6/7 유지 가능)
 
-**공유기:** 2.4GHz SSID를 **순수 WPA2-Personal** 로(WPA3/혼합 끄기). Wi-Fi 6은 유지 가능. 메시는 여전히 밴드 스티어링하지만 클라이언트의 `roamoff=1`이 처리함 —— BSSID 고정은 *선택*(아래 참고).
+**공유기:** 2.4GHz SSID를 **순수 WPA2-Personal** 로(WPA3/혼합 끄기). Wi-Fi 6/7은 유지 가능. 메시는 여전히 밴드 스티어링하지만 클라이언트의 `roamoff=1`이 처리함 —— BSSID 고정은 *선택*(아래 참고).
 
 **클라이언트(기본 —— roamoff-only, 고정 없음):**
 
@@ -146,9 +146,9 @@ Firmware: BCM43430/1 wl0: Jun 14 2023 ... version 7.45.96.s1 (gf031a129)
 
 ## 6. 대조 실험
 
-### 6a. Wi-Fi 6은 범인이 아니다(정정한 오진)
+### 6a. Wi-Fi 세대(6/7)는 범인이 아니다(정정한 오진)
 
-처음엔 Wi-Fi 6(802.11ax/HE)을 의심했음. **Wi-Fi 6을 다시 켜고 순수 WPA2를 유지해도 Zero 2 W는 연결됨 —— 재연결 첫 시도 성공, 재부팅 시에도 자동 재연결.** 따라서 오래된 클라이언트 하나 때문에 2.4GHz를 Wi-Fi 4/5로 낮추지 **말 것**(모든 2.4GHz 기기가 느려짐). Wi-Fi 6은 유지하고 암호화만 순수 WPA2로.
+처음엔 AP의 최신 Wi-Fi 모드를 의심했음. **먼저 사실관계:** 이 네트워크는 사실 **Wi-Fi 7**(Xiaomi BE 시리즈; Wi-Fi 5 호환을 끄면 802.11be로 동작). 하지만 Zero 2 W는 **802.11n(Wi-Fi 4)** 칩 —— 레거시 속도로 association하고 AP의 HE(Wi-Fi 6)/EHT(Wi-Fi 7) 기능은 완전히 무시한다. **최신 모드를 다시 켜고 순수 WPA2를 유지해도 Zero 2 W는 연결됨 —— 재연결 첫 시도 성공, 재부팅 시에도 자동 재연결.** 따라서 오래된 클라이언트 하나 때문에 2.4GHz를 Wi-Fi 4/5로 낮추지 **말 것**(모든 2.4GHz 기기가 느려짐). Wi-Fi 세대(6이나 7)는 범인이 아니다 —— 유지하고 암호화만 순수 WPA2로.
 
 ### 6b. 3대 비교(같은 버그 계열, 심각도는 다름)
 
@@ -162,7 +162,7 @@ Firmware: BCM43430/1 wl0: Jun 14 2023 ... version 7.45.96.s1 (gf031a129)
 
 ### 6c. 드라이버 수정 —— 전/후
 
-Wi-Fi 6 + 순수 WPA2 + BSSID 고정 상태에서 `roamoff=1` 추가:
+Wi-Fi 7 + 순수 WPA2 + BSSID 고정 상태에서 `roamoff=1` 추가:
 
 | | 전 | 후 |
 |---|---|---|
@@ -290,7 +290,7 @@ reboot 30   PASS   -> strong node    reject=0   throttled=0x0
 | `status_code=16` 은 오랜 brcmfmac 문제, 타인도 겪음 | RPi 포럼 t=377009, fiquett.com |
 
 ### ⭐ 직접 측정만(외부에 없거나 외부를 정정)
-1. **Wi-Fi 6은 무죄** —— Wi-Fi 6을 다시 켜고 순수 WPA2로 연결됨을 보여 증명(내 최초 추측도 뒤집음).
+1. **Wi-Fi 세대(6/7)는 무죄** —— 최신 모드를 다시 켜고 순수 WPA2로 연결됨을 보여 증명(오래된 802.11n 클라이언트는 어차피 무시함; 내 최초 추측도 뒤집음).
 2. **안전 재연결 임계 ≥10초** —— 100/100 느린 재연결 테스트로 정량화(#27은 "halt한다"고만 하고 어느 밀도가 위험한지는 말하지 않음).
 3. **`feature_disable=0x82000` 이 이 칩에서 무효** —— sysfs 읽기가 비어 있음; 실측 효과는 `roamoff=1` 뿐. (흔한 포럼 조언을 정정.)
 4. **고정할 강한 노드의 BSSID** —— 이 메시 고유.
@@ -311,6 +311,6 @@ reboot 30   PASS   -> strong node    reject=0   throttled=0x0
 
 ## 9. 최종 상태
 
-- Zero 2 W가 `<YOUR_SSID_2G>` 에 연결 → DHCP 획득, Wi-Fi 6 + (이 배포는 혼합 모드 운용, 순수 WPA2 권장), BSSID 고정, `brcmfmac.conf roamoff=1`, autoconnect 무한 재시도. 부팅 시 자동 재연결.
+- Zero 2 W가 `<YOUR_SSID_2G>` 에 연결 → DHCP 획득, Wi-Fi 7 + 순수 WPA2(이 배포는 혼합 모드 운용), **roamoff-only(BSSID 고정 없음)**, `brcmfmac.conf roamoff=1`, autoconnect 무한 재시도. 부팅 시 자동 재연결.
 - **유선 `eth0` 가 주; Wi-Fi는 예비.**(기본 Wi-Fi 전용 보드: Wi-Fi가 유일한 연결 —— 해결책이 더 중요.)
-- 공유기는 **Wi-Fi 6** 유지(Wi-Fi 6은 무해 입증). 암호화는 **순수 WPA2가 가장 안정적**; 순수 WPA3/SAE는 항상 실패; 혼합은 연결되지만 불안정.
+- 공유기는 **Wi-Fi 7** 유지(무해 입증). 암호화는 **순수 WPA2가 가장 안정적**; 순수 WPA3/SAE는 항상 실패; 혼합은 연결되지만 불안정.

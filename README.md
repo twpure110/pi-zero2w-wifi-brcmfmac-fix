@@ -9,7 +9,7 @@ A field write-up of why a **Raspberry Pi Zero 2 W** (Broadcom **BCM43430** / `br
 > 2. **`options brcmfmac roamoff=1`** in `/etc/modprobe.d/brcmfmac.conf` — disables the firmware roaming engine, which is what **mesh band steering** trips over. On our network this alone reliably connects and self-selects the strong AP on ~88% of cold boots — **no BSSID pin needed**, and it stays portable.
 > 3. **(Optional) pin one strong AP's BSSID** only if you must *guarantee* the strong AP every boot — it works but is brittle (breaks when you change routers).
 >
-> **Wi-Fi 6 is NOT the culprit** (a common misdiagnosis — proven below). **Do not downgrade firmware blindly** — the popular "downgrade to 9.88.4.65" advice targets a *different chip revision* and does not apply to BCM43430/1.
+> **The Wi-Fi generation (6/7) is NOT the culprit** (a common misdiagnosis — proven below). **Do not downgrade firmware blindly** — the popular "downgrade to 9.88.4.65" advice targets a *different chip revision* and does not apply to BCM43430/1.
 
 ---
 
@@ -39,7 +39,7 @@ The Zero 2 W's Wi-Fi chip is an old **BCM43430** (firmware `7.45.96.s1`, 2023). 
 
 ## The fix
 
-**Router side** — set the 2.4 GHz SSID to **pure WPA2-Personal** (turn off WPA3/mixed). **Wi-Fi 6 can stay on** (verified harmless — don't slow your whole network down for one old client).
+**Router side** — set the 2.4 GHz SSID to **pure WPA2-Personal** (turn off WPA3/mixed). **Wi-Fi 6/7 can stay on** (verified harmless — don't slow your whole network down for one old client). (Our test network is actually Wi-Fi 7; an 802.11n client ignores the AP's HE/EHT either way.)
 
 **Client side** — pure WPA2 + disable firmware roaming (`roamoff=1`); a BSSID pin is optional:
 
@@ -91,7 +91,7 @@ sudo nmcli con modify "<YOUR_SSID_2G>" 802-11-wireless.bssid ""
 
 ## Credits
 
-Field notes from a real home deployment (three Raspberry Pi boards on a Xiaomi Wi-Fi 6 mesh). All host-specific secrets (Wi-Fi password, SSID, BSSID, internal IPs) have been replaced with placeholders.
+Field notes from a real home deployment (three Raspberry Pi boards on a Xiaomi Wi-Fi 7 mesh). All host-specific secrets (Wi-Fi password, SSID, BSSID, internal IPs) have been replaced with placeholders.
 
 ## License
 
