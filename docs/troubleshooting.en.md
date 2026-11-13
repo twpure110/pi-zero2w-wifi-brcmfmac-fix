@@ -17,10 +17,10 @@ The Zero 2 W's Wi-Fi chip is an old **BCM43430** (firmware `7.45.96.s1`, 2023). 
 | AP encryption | Result on this old chip |
 |---|---|
 | Pure WPA3 / SAE | **Always fails** (confirmed by a Zenfone control test: a single AP on pure WPA3 failed, on pure WPA2 connected instantly) |
-| WPA2/WPA3 **mixed** | **Connects but is flaky** — the client (wpa_supplicant) negotiates PSK instead of SAE, so it *can* associate. On a strong-signal cold boot it connects in ~1–2 s; on a weak signal or a warm reboot it takes several rejects (up to ~4, ~35 s seen) or fails. |
+| WPA2/WPA3 **mixed** | **Connects but is flaky** — the client (wpa_supplicant) negotiates PSK instead of SAE, so it *can* associate. On a strong-signal cold boot it connects in ~1–2 s; on a weak signal or a warm reboot it takes several rejects (up to ~4, ~35 s seen) or fails. **⚠️ Only with `wpasupplicant` ≤ `2:2.10-24`: from `2:2.10-24+rpt3` (2026-11) on, mixed mode fails completely — see the [2026-11 update in the README](../README.md#2026-11-update).** |
 | Pure WPA2 | **Reliable** (recommended) |
 
-> Note: this deployment now runs **roamoff-only (no BSSID pin), on mixed-mode encryption, at a strong signal** — Wi-Fi is only the backup link and the pin's brittleness wasn't worth it (see §7c for the data behind dropping the pin). Switch to pure WPA2 if you want the mixed-mode flakiness gone. Also note: there is **no driver-level SAE protection** here — `feature_disable` doesn't take effect on this chip (see §3), so mixed mode works purely because the *client* prefers PSK.
+> Note: this deployment now runs **roamoff-only (no BSSID pin), on mixed-mode encryption, at a strong signal** — Wi-Fi is only the backup link and the pin's brittleness wasn't worth it (see §7c for the data behind dropping the pin). Switch to pure WPA2 if you want the mixed-mode flakiness gone. Also note: there is **no driver-level SAE protection** here — `feature_disable` doesn't take effect on this chip (see §3), so mixed mode works purely because the *client* prefers PSK. (2026-11: to keep mixed mode working, this deployment had to downgrade and hold `wpasupplicant` at `2:2.10-24` — see the [README update](../README.md#2026-11-update).)
 
 ## 2. Identifying the problem
 

@@ -5,11 +5,36 @@
 **Raspberry Pi Zero 2 W**(Broadcom **BCM43430** / `brcmfmac` ドライバ)が **Wi-Fi メッシュ**ルーターへの接続(アソシエーション)に繰り返し失敗する —— `CTRL-EVENT-ASSOC-REJECT ... status_code=16` —— その原因と、実際に解決した方法の実地メモです。変数を一つずつ切り分けた対照実験、3 台比較、そして「どの結論が上流 issue に裏付けられ、どれが自分の実測か」を明示しています。
 
 > **要点（TL;DR）** —— 古い BCM43430 チップでは:
-> 1. **純粋な WPA2-PSK を使う。** 純粋な WPA3/SAE はこのチップで**必ず失敗**;WPA2/WPA3 **混在モード**は繋がるが**不安定**（強信号のコールド起動なら OK、弱信号/ウォーム再起動では不安定）。
+> 1. **純粋な WPA2-PSK を使う。** 純粋な WPA3/SAE はこのチップで**必ず失敗**;WPA2/WPA3 **混在モード**は繋がるが**不安定**（強信号のコールド起動なら OK、弱信号/ウォーム再起動では不安定）。**⚠️ `wpasupplicant 2:2.10-24+rpt3`(2026-11)以降、混在モードはまったく繋がらなくなった —— 下の [2026-11 更新](#2026-11-update) を参照。**
 > 2. **`/etc/modprobe.d/brcmfmac.conf` に `options brcmfmac roamoff=1`** —— ファームのローミングエンジンを無効化する。これこそ**メッシュのバンドステアリング**が引っかかる部分。本ネットワークではこれ単独で **コールド起動の ~88% で強ノードに自動接続 —— BSSID 固定不要、可搬のまま**。
 > 3. **（任意）強 AP の BSSID を固定**するのは、毎回強 AP を*保証*したい場合のみ —— 有効だがもろい（ルーターを変えると壊れる）。
 >
 > **Wi-Fi 世代（6/7）は犯人ではありません**（よくある誤診 —— 下で証明）。**安易にファームを下げないこと** —— 有名な「9.88.4.65 へダウングレード」は**別のチップ版**向けで、BCM43430/1 には当てはまりません。
+
+<a id="2026-11-update"></a>
+## ⚠️ 2026-11 更新:`wpasupplicant 2:2.10-24+rpt3` で WPA2/WPA3 混在モードが繋がらなくなる
+
+Raspberry Pi OS(trixie)で定期的な `apt full-upgrade` を実行したところ、`wpasupplicant` が `2:2.10-24` から **`2:2.10-24+rpt3`** に上がり —— Zero 2 W が**混在モードの SSID にまったく接続できなくなった**(同じネットワークに何か月も問題なく繋がっていた):
+
+```
+wpa_supplicant: wlan0: Authentication with <BSSID> timed out.
+wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... reason=CONN_FAILED
+NetworkManager: device (wlan0): Activation: (wifi) association took too long
+NetworkManager: device (wlan0): state change: config -> failed (reason 'no-secrets')
+```
+
+その後 NetworkManager は**自動再試行をやめてしまう**(`autoconnect-retries 0` でも同じ)ため、手動で接続し直すまで Wi-Fi は落ちたまま。
+
+- **考えられる原因:** `+rpt3` の changelog に *「Add upstream patch to fix reporting of SAE support over D-Bus」* とある。NetworkManager が supplicant の SAE 対応を認識するようになり、混在モード AP に SAE(WPA3)で接続しようとする —— このチップには SAE ができない。以前は PSK にフォールバックしていた。(changelog からの推測;実際に確認したのは「ダウングレードだけで即座に直った」こと。)
+- **対処 A(推奨):ルーターを純粋な WPA2-PSK に。** TL;DR と同じ。何も固定する必要がなく、今後のアップグレードも安全。
+- **対処 B:ダウングレードして hold**(どうしても混在モードを残したい場合):
+  ```bash
+  sudo apt-get install --allow-downgrades wpasupplicant=2:2.10-24
+  sudo apt-mark hold wpasupplicant
+  sudo nmcli con up "<YOUR_SSID_2G>"   # 'no-secrets' の後 NM は自分では再試行しない
+  ```
+  結果:1 回目で接続、拒否 0 回;新しいカーネルで再起動した後も自動接続。トレードオフ:hold 中は `wpasupplicant` にセキュリティ更新が入らない —— ルーターを純粋な WPA2 にしたら(または修正版が出たら)`sudo apt-mark unhold wpasupplicant`。
+- **影響なし:** 同じアップグレードで `firmware-brcm80211` も 20260519 に上がったが、この基板が実際に読み込むファイル(`brcmfmac43436s-sdio.bin`)は `7.45.96.s1` のまま —— Wi-Fi ファームは変わっていない。自分の環境は `journalctl -k -b | grep 'Firmware: BCM'` で確認。
 
 ---
 
@@ -33,7 +58,7 @@ wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... auth_failures=N reason=
 
 Zero 2 W の Wi-Fi チップは古い **BCM43430**（ファーム `7.45.96.s1`、2023）。メッシュの `*_2.4G` SSID では 2 つが重要:
 
-1. **暗号化。** 純粋な WPA3/SAE は**必ず**古いファームにアソシエーションを拒否させる。WPA2/WPA3 **混在モード**は**繋がる**（クライアントが SAE より PSK を選ぶ）が**不安定** —— 強信号なら ~1–2 秒で接続、弱信号やウォーム再起動では多数の拒否（実測 約35秒）または失敗。**完全に信頼できるのは純粋な WPA2-PSK のみ。**
+1. **暗号化。** 純粋な WPA3/SAE は**必ず**古いファームにアソシエーションを拒否させる。WPA2/WPA3 **混在モード**は**繋がる**（クライアントが SAE より PSK を選ぶ）が**不安定** —— 強信号なら ~1–2 秒で接続、弱信号やウォーム再起動では多数の拒否（実測 約35秒）または失敗。**完全に信頼できるのは純粋な WPA2-PSK のみ。**(混在モードで繋がるのは `wpasupplicant` ≤ `2:2.10-24` の場合に限る —— [2026-11 更新](#2026-11-update) を参照。)
 2. **バンドステアリングが真の主犯**:メッシュがアソシエーション途中で弱いノードへ振り分け、拒否する（`status_code=16`;特徴 —— 拒否行の `bssid=` が接続したいノードと異なる、またはオールゼロ）。対策は **`roamoff=1`**（ファームのローミングエンジンを無効化）で、本ネットワークではこれだけで十分;**BSSID 固定は任意** —— 特定 AP を*保証*するだけで、代償は可搬性。
 
 ## 対処

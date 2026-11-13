@@ -5,11 +5,36 @@
 一份實戰筆記:**Raspberry Pi Zero 2 W**(Broadcom **BCM43430** / `brcmfmac` 驅動)為什麼在 **Wi-Fi mesh** 路由器上一直關聯失敗 —— `CTRL-EVENT-ASSOC-REJECT ... status_code=16` —— 還有到底怎麼把它修好。裡面有一個變數一個變數隔離的受控實驗、三台裝置對照,也清楚標出哪些結論有上游 issue 撐腰、哪些純粹是我自己實測出來的。
 
 > **太長不看(TL;DR)** —— 在老的 BCM43430 晶片上:
-> 1. **用純 WPA2-PSK。** 純 WPA3/SAE 在這顆晶片上**一定連不上**;WPA2/WPA3 **混合模式**連得上但**時好時壞**(訊號強冷開機 OK,訊號弱/熱重開就不可靠)。
+> 1. **用純 WPA2-PSK。** 純 WPA3/SAE 在這顆晶片上**一定連不上**;WPA2/WPA3 **混合模式**連得上但**時好時壞**(訊號強冷開機 OK,訊號弱/熱重開就不可靠)。**⚠️ 從 `wpasupplicant 2:2.10-24+rpt3`(2026-11)起,混合模式直接完全連不上 —— 看下面的 [2026-11 更新](#2026-11-update)。**
 > 2. **在 `/etc/modprobe.d/brcmfmac.conf` 寫 `options brcmfmac roamoff=1`** —— 把韌體漫遊引擎關掉,**mesh band steering** 卡的就是這個。我這個網實測,**光靠它就 ~88% 冷開機自己連上強節點 —— 不用鎖 BSSID、又可攜**。
 > 3. **(可有可無)鎖一台強 AP 的 BSSID** —— 只在「非得保證每次都連強 AP」時才用,它有效但脆(換路由器就壞)。
 >
 > **Wi-Fi 世代(6/7)不是元兇**(常見誤判 —— 下面有證)。**別亂降韌體** —— 網路上很紅的「降到 9.88.4.65」是別顆晶片版本的事,對 BCM43430/1 不適用。
+
+<a id="2026-11-update"></a>
+## ⚠️ 2026-11 更新:`wpasupplicant 2:2.10-24+rpt3` 讓 WPA2/WPA3 混合模式整個連不上
+
+在 Raspberry Pi OS(trixie)上跑了一次例行的 `apt full-upgrade`,`wpasupplicant` 從 `2:2.10-24` 升到 **`2:2.10-24+rpt3`** —— 結果 Zero 2 W **連混合模式的 SSID 直接完全連不上**(同一個網,之前好幾個月都連得好好的):
+
+```
+wpa_supplicant: wlan0: Authentication with <BSSID> timed out.
+wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... reason=CONN_FAILED
+NetworkManager: device (wlan0): Activation: (wifi) association took too long
+NetworkManager: device (wlan0): state change: config -> failed (reason 'no-secrets')
+```
+
+而且之後 NetworkManager **就不再自動重試**(就算設了 `autoconnect-retries 0` 也一樣),Wi-Fi 會一直斷著,直到你手動把它拉起來。
+
+- **八成是這個原因:** `+rpt3` 的 changelog 寫 *「Add upstream patch to fix reporting of SAE support over D-Bus」*。NetworkManager 從此知道 supplicant 支援 SAE,就會對混合模式 AP 用 SAE(WPA3)去連 —— 偏偏這顆晶片做不到。以前它會退回用 PSK。(這是從 changelog 推出來的;實際驗證到的是:光把它降版,馬上就連上。)
+- **解法 A(建議):路由器改純 WPA2-PSK。** 跟上面 TL;DR 一樣。什麼都不用鎖,以後升級也安全。
+- **解法 B:降版並鎖住**(非留混合模式不可的話):
+  ```bash
+  sudo apt-get install --allow-downgrades wpasupplicant=2:2.10-24
+  sudo apt-mark hold wpasupplicant
+  sudo nmcli con up "<YOUR_SSID_2G>"   # NM 報 'no-secrets' 之後不會自己重試
+  ```
+  結果:第一次就連上、0 次 reject;重開機換上新 kernel 之後也照樣自動連上。代價:鎖住期間 `wpasupplicant` 收不到安全更新 —— 等路由器改成純 WPA2(或官方出了修好的版本),再跑 `sudo apt-mark unhold wpasupplicant`。
+- **沒受影響的部分:** 同一次升級也把 `firmware-brcm80211` 升到 20260519,但這塊板子實際載入的檔案(`brcmfmac43436s-sdio.bin`)還是 `7.45.96.s1` —— Wi-Fi 韌體沒變。查你自己的:`journalctl -k -b | grep 'Firmware: BCM'`。
 
 ---
 
@@ -33,7 +58,7 @@ wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... auth_failures=N reason=
 
 Zero 2 W 用的是老晶片 **BCM43430**(韌體 `7.45.96.s1`,2023)。在 mesh 的 `*_2.4G` SSID 上,要顧兩件事:
 
-1. **加密。** 純 WPA3/SAE **一定**讓老韌體拒絕關聯。WPA2/WPA3 **混合模式**其實**連得上**(客戶端會去談 PSK 不談 SAE),但**不可靠** —— 訊號強時 ~1–2 秒連上,訊號弱或熱重開時會被擋很多次(實測拖到約 35 秒)甚至連不上。**只有純 WPA2-PSK 才完全可靠。**
+1. **加密。** 純 WPA3/SAE **一定**讓老韌體拒絕關聯。WPA2/WPA3 **混合模式**其實**連得上**(客戶端會去談 PSK 不談 SAE),但**不可靠** —— 訊號強時 ~1–2 秒連上,訊號弱或熱重開時會被擋很多次(實測拖到約 35 秒)甚至連不上。**只有純 WPA2-PSK 才完全可靠。**(混合模式連得上的前提是 `wpasupplicant` ≤ `2:2.10-24` —— 看 [2026-11 更新](#2026-11-update)。)
 2. **band steering 才是主兇**:mesh 在關聯到一半把客戶端導去比較弱的節點、然後 reject(`status_code=16`;特徵:reject 那行的 `bssid=` 跟你要連的節點對不上,或全零)。解法是 **`roamoff=1`**(關韌體漫遊引擎),我這個網單靠它就夠;**鎖 BSSID 可有可無** —— 它只是*保證*連某台 AP,代價是不可攜。
 
 ## 修法

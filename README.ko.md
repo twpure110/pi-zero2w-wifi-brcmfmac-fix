@@ -5,11 +5,36 @@
 **Raspberry Pi Zero 2 W**(Broadcom **BCM43430** / `brcmfmac` 드라이버)가 **Wi-Fi 메시** 공유기에 연결(association)을 반복적으로 실패하는 문제 —— `CTRL-EVENT-ASSOC-REJECT ... status_code=16` —— 의 근본 원인과 실제로 해결한 방법에 대한 현장 기록입니다. 변수를 하나씩 분리한 대조 실험, 3대 비교, 그리고 어떤 결론이 업스트림 이슈로 뒷받침되고 어떤 것이 직접 측정한 것인지를 명확히 구분합니다.
 
 > **요약(TL;DR)** —— 오래된 BCM43430 칩에서:
-> 1. **순수 WPA2-PSK 사용.** 순수 WPA3/SAE는 이 칩에서 **항상 실패**; WPA2/WPA3 **혼합 모드**는 연결은 되지만 불안정(강신호 콜드 부팅은 OK, 약신호/웜 재부팅은 불안정).
+> 1. **순수 WPA2-PSK 사용.** 순수 WPA3/SAE는 이 칩에서 **항상 실패**; WPA2/WPA3 **혼합 모드**는 연결은 되지만 불안정(강신호 콜드 부팅은 OK, 약신호/웜 재부팅은 불안정). **⚠️ `wpasupplicant 2:2.10-24+rpt3`(2026-11)부터는 혼합 모드가 아예 연결되지 않음 —— 아래 [2026-11 업데이트](#2026-11-update) 참고.**
 > 2. **`/etc/modprobe.d/brcmfmac.conf` 에 `options brcmfmac roamoff=1`** —— 펌웨어 로밍 엔진을 끄며, 바로 그것이 **메시 밴드 스티어링**이 걸리는 지점. 우리 네트워크에서는 이것만으로 **콜드 부팅의 ~88%에서 강한 노드에 자동 연결 —— BSSID 고정 불필요, 이식성 유지**.
 > 3. **(선택) 강한 AP의 BSSID 고정**은 매번 강한 AP를 *보장*해야 할 때만 —— 작동하지만 취약함(공유기를 바꾸면 깨짐).
 >
 > **Wi-Fi 세대(6/7)는 범인이 아닙니다**(흔한 오진 —— 아래에서 증명). **무턱대고 펌웨어를 다운그레이드하지 마세요** —— 유명한 "9.88.4.65로 다운그레이드"는 **다른 칩 리비전**용이며 BCM43430/1에는 적용되지 않습니다.
+
+<a id="2026-11-update"></a>
+## ⚠️ 2026-11 업데이트: `wpasupplicant 2:2.10-24+rpt3` 이후 WPA2/WPA3 혼합 모드 연결 불가
+
+Raspberry Pi OS(trixie)에서 일상적인 `apt full-upgrade` 를 실행했더니 `wpasupplicant` 가 `2:2.10-24` 에서 **`2:2.10-24+rpt3`** 으로 올라갔고 —— Zero 2 W가 **혼합 모드 SSID에 전혀 연결되지 않게 되었습니다**(몇 달 동안 문제없이 연결되던 같은 네트워크):
+
+```
+wpa_supplicant: wlan0: Authentication with <BSSID> timed out.
+wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... reason=CONN_FAILED
+NetworkManager: device (wlan0): Activation: (wifi) association took too long
+NetworkManager: device (wlan0): state change: config -> failed (reason 'no-secrets')
+```
+
+그 이후 NetworkManager는 **자동 재시도를 멈춥니다**(`autoconnect-retries 0` 이어도 마찬가지). 그래서 수동으로 다시 연결하기 전까지 Wi-Fi는 끊긴 상태로 남습니다.
+
+- **유력한 원인:** `+rpt3` changelog에 *"Add upstream patch to fix reporting of SAE support over D-Bus"* 라고 되어 있습니다. NetworkManager가 supplicant의 SAE 지원을 인식하게 되어 혼합 모드 AP에 SAE(WPA3)로 연결하려 하는데 —— 이 칩은 SAE를 못 합니다. 이전에는 PSK로 폴백했습니다. (changelog에서 추론한 것이며, 실제로 확인한 것은 "다운그레이드만으로 즉시 해결됨"입니다.)
+- **해결 A(권장): 공유기를 순수 WPA2-PSK로.** TL;DR과 동일. 고정할 것이 없고 이후 업그레이드도 안전합니다.
+- **해결 B: 다운그레이드 후 hold**(혼합 모드를 꼭 유지해야 한다면):
+  ```bash
+  sudo apt-get install --allow-downgrades wpasupplicant=2:2.10-24
+  sudo apt-mark hold wpasupplicant
+  sudo nmcli con up "<YOUR_SSID_2G>"   # 'no-secrets' 이후 NM은 스스로 재시도하지 않음
+  ```
+  결과: 첫 시도에 연결, 거부 0회; 새 커널로 재부팅한 뒤에도 자동 연결됨. 대가: hold 동안 `wpasupplicant` 는 보안 업데이트를 받지 못합니다 —— 공유기를 순수 WPA2로 바꾸면(또는 수정된 패키지가 나오면) `sudo apt-mark unhold wpasupplicant`.
+- **영향 없음:** 같은 업그레이드로 `firmware-brcm80211` 도 20260519로 올라갔지만, 이 보드가 실제로 로드하는 파일(`brcmfmac43436s-sdio.bin`)은 여전히 `7.45.96.s1` —— Wi-Fi 펌웨어는 바뀌지 않았습니다. 본인 환경은 `journalctl -k -b | grep 'Firmware: BCM'` 으로 확인하세요.
 
 ---
 
@@ -33,7 +58,7 @@ wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... auth_failures=N reason=
 
 Zero 2 W의 Wi-Fi 칩은 오래된 **BCM43430**(펌웨어 `7.45.96.s1`, 2023)입니다. 메시의 `*_2.4G` SSID에서 두 가지가 중요합니다:
 
-1. **암호화.** 순수 WPA3/SAE는 **항상** 오래된 펌웨어가 association을 거부하게 만듭니다. WPA2/WPA3 **혼합 모드**는 **연결 가능**(클라이언트가 SAE 대신 PSK를 협상)하지만 **불안정** —— 강신호에서는 ~1–2초에 연결, 약신호나 웜 재부팅에서는 여러 번 거부(실측 약 35초)되거나 실패. **완전히 신뢰할 수 있는 것은 순수 WPA2-PSK뿐입니다.**
+1. **암호화.** 순수 WPA3/SAE는 **항상** 오래된 펌웨어가 association을 거부하게 만듭니다. WPA2/WPA3 **혼합 모드**는 **연결 가능**(클라이언트가 SAE 대신 PSK를 협상)하지만 **불안정** —— 강신호에서는 ~1–2초에 연결, 약신호나 웜 재부팅에서는 여러 번 거부(실측 약 35초)되거나 실패. **완전히 신뢰할 수 있는 것은 순수 WPA2-PSK뿐입니다.** (혼합 모드가 연결되는 것은 `wpasupplicant` ≤ `2:2.10-24` 일 때뿐 —— [2026-11 업데이트](#2026-11-update) 참고.)
 2. **밴드 스티어링이 진짜 주범**: 메시가 association 도중 더 약한 노드로 넘기고 거부합니다(`status_code=16`; 특징 —— 거부 줄의 `bssid=` 가 연결하려던 노드와 다름, 또는 전부 0). 해결책은 **`roamoff=1`**(펌웨어 로밍 엔진 끄기)이고, 우리 네트워크에서는 이것만으로 충분; **BSSID 고정은 선택** —— 특정 AP를 *보장*할 뿐이며 대가는 이식성.
 
 ## 해결

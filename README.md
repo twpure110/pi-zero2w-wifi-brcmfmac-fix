@@ -5,11 +5,36 @@
 A field write-up of why a **Raspberry Pi Zero 2 W** (Broadcom **BCM43430** / `brcmfmac` driver) repeatedly fails to associate with a **Wi-Fi mesh** router — `CTRL-EVENT-ASSOC-REJECT ... status_code=16` — and what actually fixed it. Includes a controlled experiment isolating each variable, a 3-device comparison, and a clear list of which conclusions are backed by upstream issues vs. measured first-hand.
 
 > **TL;DR** — On an old BCM43430 chip:
-> 1. **Use pure WPA2-PSK.** Pure WPA3/SAE *always* fails on this chip; WPA2/WPA3 *mixed mode* will connect but is flaky (fine on a strong-signal cold boot, unreliable on weak signal / warm reboot).
+> 1. **Use pure WPA2-PSK.** Pure WPA3/SAE *always* fails on this chip; WPA2/WPA3 *mixed mode* will connect but is flaky (fine on a strong-signal cold boot, unreliable on weak signal / warm reboot). **⚠️ Since `wpasupplicant 2:2.10-24+rpt3` (2026-11), mixed mode doesn't connect at all — see the [2026-11 update](#2026-11-update) below.**
 > 2. **`options brcmfmac roamoff=1`** in `/etc/modprobe.d/brcmfmac.conf` — disables the firmware roaming engine, which is what **mesh band steering** trips over. On our network this alone reliably connects and self-selects the strong AP on ~88% of cold boots — **no BSSID pin needed**, and it stays portable.
 > 3. **(Optional) pin one strong AP's BSSID** only if you must *guarantee* the strong AP every boot — it works but is brittle (breaks when you change routers).
 >
 > **The Wi-Fi generation (6/7) is NOT the culprit** (a common misdiagnosis — proven below). **Do not downgrade firmware blindly** — the popular "downgrade to 9.88.4.65" advice targets a *different chip revision* and does not apply to BCM43430/1.
+
+<a id="2026-11-update"></a>
+## ⚠️ 2026-11 update: `wpasupplicant 2:2.10-24+rpt3` breaks WPA2/WPA3 mixed mode
+
+After a routine `apt full-upgrade` on Raspberry Pi OS (trixie), `wpasupplicant` went from `2:2.10-24` to **`2:2.10-24+rpt3`** — and the Zero 2 W **stopped connecting to the mixed-mode SSID entirely** (same network it had been connecting to for months):
+
+```
+wpa_supplicant: wlan0: Authentication with <BSSID> timed out.
+wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... reason=CONN_FAILED
+NetworkManager: device (wlan0): Activation: (wifi) association took too long
+NetworkManager: device (wlan0): state change: config -> failed (reason 'no-secrets')
+```
+
+After that, NetworkManager **stops auto-retrying** (even with `autoconnect-retries 0`), so Wi-Fi stays down until you bring it up by hand.
+
+- **Likely cause:** the `+rpt3` changelog says *"Add upstream patch to fix reporting of SAE support over D-Bus"*. NetworkManager now learns the supplicant can do SAE and uses SAE (WPA3) on a mixed-mode AP — which this chip can't do. Before, it fell back to PSK. (Inferred from the changelog; what we verified is that downgrading alone fixed it instantly.)
+- **Fix A (recommended): set the router to pure WPA2-PSK.** Same as the TL;DR. Nothing to hold, future upgrades stay safe.
+- **Fix B: downgrade and hold** (if you must keep mixed mode):
+  ```bash
+  sudo apt-get install --allow-downgrades wpasupplicant=2:2.10-24
+  sudo apt-mark hold wpasupplicant
+  sudo nmcli con up "<YOUR_SSID_2G>"   # NM won't retry by itself after 'no-secrets'
+  ```
+  Result: connected on the first try with 0 rejects, and still auto-connects after rebooting into the new kernel. Trade-off: while held, `wpasupplicant` gets no security updates — run `sudo apt-mark unhold wpasupplicant` once the router is on pure WPA2 (or a fixed package ships).
+- **Not affected:** the same upgrade bumped `firmware-brcm80211` (20260519), but the file this board actually loads (`brcmfmac43436s-sdio.bin`) is still `7.45.96.s1` — no Wi-Fi firmware change. Check yours with `journalctl -k -b | grep 'Firmware: BCM'`.
 
 ---
 
@@ -34,7 +59,7 @@ wpa_supplicant: wlan0: CTRL-EVENT-SSID-TEMP-DISABLED ... auth_failures=N reason=
 
 The Zero 2 W's Wi-Fi chip is an old **BCM43430** (firmware `7.45.96.s1`, 2023). Two things matter on a `*_2.4G` SSID on a consumer mesh:
 
-1. **Encryption.** Pure WPA3/SAE *always* makes the old firmware reject the association. WPA2/WPA3 *mixed mode* **can** associate (the client negotiates PSK over SAE) but is **unreliable** — on a strong signal it connects in ~1–2 s, on a weak signal or a warm reboot it takes many rejects (≈35 s seen) or fails. **Pure WPA2-PSK is the only fully reliable option.**
+1. **Encryption.** Pure WPA3/SAE *always* makes the old firmware reject the association. WPA2/WPA3 *mixed mode* **can** associate (the client negotiates PSK over SAE) but is **unreliable** — on a strong signal it connects in ~1–2 s, on a weak signal or a warm reboot it takes many rejects (≈35 s seen) or fails. **Pure WPA2-PSK is the only fully reliable option.** (Mixed mode working at all depends on `wpasupplicant` ≤ `2:2.10-24` — see the [2026-11 update](#2026-11-update).)
 2. **Band steering** is the real culprit: the mesh hands the client off to a weaker node mid-association and rejects it (`status_code=16`; tell-tale sign — the `bssid=` in the reject line differs from the node you intended, or is all-zeros). The fix is **`roamoff=1`** (disable the firmware roaming engine), which on our network is enough on its own; **pinning a BSSID is optional** — it only *guarantees* a specific AP, at the cost of portability.
 
 ## The fix
